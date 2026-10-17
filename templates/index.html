@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>服务器状态</title>
+<style>
+:root{--bg:#0f1216;--card:#171c23;--line:#222a33;--fg:#e6edf3;--muted:#8b98a5;--ok:#2ea043;--bad:#da3633;--accent:#1f6feb}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--fg);padding:22px}
+h1{font-size:19px;margin:0 0 14px;font-weight:600}
+h1.sect{margin-top:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card h2{font-size:12px;color:var(--muted);margin:0 0 8px;font-weight:600;letter-spacing:.02em}
+.big{font-size:26px;font-weight:700;line-height:1.2}
+.sub{font-size:12px;color:var(--muted);margin-top:6px}
+.bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:9px}
+.bar>i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.svc{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:7px;vertical-align:middle}
+.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.off{background:var(--bad)}
+.btn{border:0;border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;color:#fff;background:#39424d;margin-left:6px}
+.btn.start{background:var(--ok)}
+.btn.stop{background:var(--bad)}
+.btn:disabled{opacity:.35;cursor:default}
+.players{font-size:12px;color:var(--muted);margin-top:8px;word-break:break-all}
+#updated{font-size:12px;color:var(--muted);font-weight:400;margin-left:10px}
+</style>
+</head>
+<body>
+<h1>服务器状态<span id="updated"></span></h1>
+<div class="grid" id="metrics"></div>
+
+<h1 class="sect">网络流量（最近 6 分钟）</h1>
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <span class="sub"><span class="dot" style="background:#2ea043;box-shadow:none"></span>下行 <b id="rxnow">-</b></span>
+    <span class="sub"><span class="dot" style="background:#1f6feb;box-shadow:none"></span>上行 <b id="txnow">-</b></span>
+    <span class="sub">峰值 <b id="peak">-</b></span>
+  </div>
+  <svg id="chart" viewBox="0 0 600 140" preserveAspectRatio="none" style="width:100%;height:150px;margin-top:8px;display:block">
+    <polyline id="txline" fill="none" stroke="#1f6feb" stroke-width="2" points=""/>
+    <polyline id="rxline" fill="none" stroke="#2ea043" stroke-width="2" points=""/>
+  </svg>
+</div>
+
+<h1 class="sect">服务</h1>
+<div class="grid" id="services"></div>
+
+<script>
+const NAMES = {teamspeak:"TeamSpeak", webspeak:"WebSpeak", mc:"Minecraft (GTNH)", cs2:"CS2", piik:"Piik"};
+
+function fmtBytes(n){
+  if(!n) return "0 B";
+  const u=["B","KB","MB","GB","TB"]; let i=0;
+  while(n>=1024 && i<u.length-1){ n/=1024; i++; }
+  return n.toFixed(i?1:0)+" "+u[i];
+}
+function fmtRate(n){ return fmtBytes(n)+"/s"; }
+function fmtUptime(s){
+  const d=Math.floor(s/86400), h=Math.floor(s%86400/3600), m=Math.floor(s%3600/60);
+  return (d?d+"天 ":"")+(h?h+"小时 ":"")+m+"分";
+}
+
+function renderMetrics(m){
+  const items=[
+    {t:"CPU 使用率", v:m.cpu.toFixed(1)+"%", p:m.cpu, s:`${m.cpu_cores} 核 · Load ${m.load.join(" / ")}`},
+    {t:"内存", v:m.mem_pct.toFixed(1)+"%", p:m.mem_pct, s:`${fmtBytes(m.mem_used)} / ${fmtBytes(m.mem_total)}`},
+    {t:"硬盘 (/)", v:m.disk_pct.toFixed(1)+"%", p:m.disk_pct, s:`${fmtBytes(m.disk_used)} / ${fmtBytes(m.disk_total)}`},
+    {t:"网络", v:"↓ "+fmtRate(m.net_rx), p:0, s:"↑ "+fmtRate(m.net_tx)},
+    {t:"运行时间", v:fmtUptime(m.uptime), p:0, s:"服务器开机时长"}
+  ];
+  document.getElementById("metrics").innerHTML = items.map(x=>`
+    <div class="card"><h2>${x.t}</h2><div class="big">${x.v}</div>
+      <div class="sub">${x.s}</div>
+      ${x.p?`<div class="bar"><i style="width:${Math.min(100,x.p)}%"></i></div>`:""}
+    </div>`).join("");
+}
+
+function renderServices(s){
+  document.getElementById("services").innerHTML = Object.keys(NAMES).map(k=>{
+    const v = s[k] || {}, on = !!v.running;
+    const extra = k==="mc" ? ` · 在线 ${v.online||0} 人` : "";
+    const players = (k==="mc" && v.players && v.players.length)
+      ? `<div class="players">在线玩家：${v.players.join(", ")}</div>` : "";
+    return `<div class="card"><h2>${NAMES[k]}</h2>
+      <div class="svc">
+        <span><span class="dot ${on?"on":"off"}"></span>${on?"运行中":"已停止"}${extra}</span>
+        <span>
+          <button class="btn start" ${on?"disabled":""} onclick="act('${k}','start',this)">启动</button>
+          <button class="btn stop" ${on?"":"disabled"} onclick="act('${k}','stop',this)">停止</button>
+        </span>
+      </div>${players}</div>`;
+  }).join("");
+}
+
+function renderChart(hist){
+  const rx = document.getElementById("rxline"), tx = document.getElementById("txline");
+  if(!hist || hist.length < 2){
+    rx.setAttribute("points",""); tx.setAttribute("points",""); return;
+  }
+  const w = 600, h = 140, pad = 6, n = hist.length;
+  const max = Math.max(1, ...hist.map(p=>Math.max(p.rx, p.tx)));
+  const X = i => pad + (w - 2*pad) * (i / (n - 1));
+  const Y = v => h - pad - (h - 2*pad) * (v / max);
+  rx.setAttribute("points", hist.map((p,i)=>X(i).toFixed(1)+","+Y(p.rx).toFixed(1)).join(" "));
+  tx.setAttribute("points", hist.map((p,i)=>X(i).toFixed(1)+","+Y(p.tx).toFixed(1)).join(" "));
+  document.getElementById("rxnow").textContent = fmtRate(hist[n-1].rx);
+  document.getElementById("txnow").textContent = fmtRate(hist[n-1].tx);
+  document.getElementById("peak").textContent = fmtRate(max);
+}
+
+async function act(name, action, btn){
+  btn.disabled = true;
+  try { await fetch(`/api/service/${name}/${action}`, {method:"POST"}); } catch(e) {}
+  setTimeout(refresh, 1000);
+}
+
+async function refresh(){
+  try{
+    const r = await fetch("/api/status", {cache:"no-store"});
+    const j = await r.json();
+    renderMetrics(j.metrics);
+    renderChart(j.net_history);
+    renderServices(j.services);
+    document.getElementById("updated").textContent = "更新于 " + new Date().toLocaleTimeString();
+  }catch(e){
+    document.getElementById("updated").textContent = "连接失败";
+  }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
