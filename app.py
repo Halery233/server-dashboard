@@ -126,39 +126,47 @@ def bg(fn):
     threading.Thread(target=fn, daemon=True).start()
 
 
+# Screen sessions / game servers belong to the "ubuntu" user, but this
+# service runs as root, so screen must be invoked as that user.
+def _u(cmd, timeout=40):
+    return run(f"runuser -u ubuntu -- {cmd}", timeout)
+
+
 def start_ts3():
-    run(f"cd {TS3_DIR} && ./ts3server_startscript.sh start", 40)
+    run(f"cd {TS3_DIR} && runuser -u ubuntu -- ./ts3server_startscript.sh start", 40)
 
 
 def stop_ts3():
-    run(f"cd {TS3_DIR} && ./ts3server_startscript.sh stop", 40)
+    run(f"cd {TS3_DIR} && runuser -u ubuntu -- ./ts3server_startscript.sh stop", 40)
 
 
 def start_mc():
-    run("screen -S gtnh -X quit", 5)
-    run(f"cd {MC_DIR} && screen -dmS gtnh bash -c "
+    _u("screen -S gtnh -X quit", 5)
+    run(f"cd {MC_DIR} && runuser -u ubuntu -- screen -dmS gtnh bash -c "
         f"'bash startserver-java9.sh > {MC_LOG} 2>&1'", 20)
 
 
 def stop_mc():
-    run("screen -S gtnh -X stuff $'stop\\r'", 5)
+    _u("screen -S gtnh -X stuff $'stop\\r'", 5)
     time.sleep(25)
-    run("screen -S gtnh -X quit", 5)
-    time.sleep(3)
+    _u("screen -S gtnh -X quit", 5)
+    run("pkill -f startserver-java9.sh", 5)
+    time.sleep(2)
     run("pkill -x java", 5)
 
 
 def start_cs2():
-    run("screen -S cs2 -X quit", 5)
-    run(f"bash {CS2_START}", 40)
+    _u("screen -S cs2 -X quit", 5)
+    run(f"cd /home/ubuntu && runuser -u ubuntu -- bash {CS2_START}", 40)
 
 
 def stop_cs2():
-    run("screen -S cs2 -X stuff $'stop\\r'", 5)
+    _u("screen -S cs2 -X stuff $'stop\\r'", 5)
     time.sleep(20)
     run("pkill -x cs2", 5)
     time.sleep(3)
     run("pkill -9 -x cs2", 5)
+    _u("screen -S cs2 -X quit", 5)
 
 
 def docker_up(d):
