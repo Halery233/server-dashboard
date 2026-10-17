@@ -21,6 +21,7 @@ h1.sect{margin-top:24px}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:7px;vertical-align:middle}
 .on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .off{background:var(--bad)}
+.pending{background:#d29922;box-shadow:0 0 8px #d29922}
 .btn{border:0;border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;color:#fff;background:#39424d;margin-left:6px}
 .btn.start{background:var(--ok)}
 .btn.stop{background:var(--bad)}
@@ -81,16 +82,18 @@ function renderMetrics(m){
 
 function renderServices(s){
   document.getElementById("services").innerHTML = Object.keys(NAMES).map(k=>{
-    const v = s[k] || {}, on = !!v.running;
+    const v = s[k] || {}, on = !!v.running, busy = v.busy;
     const extra = k==="mc" ? ` · 在线 ${v.online||0} 人` : "";
     const players = (k==="mc" && v.players && v.players.length)
       ? `<div class="players">在线玩家：${v.players.join(", ")}</div>` : "";
+    const state = busy === "stop" ? "⏳ 停止中…" : busy === "start" ? "⏳ 启动中…" : (on ? "运行中" : "已停止");
+    const dotCls = busy ? "pending" : (on ? "on" : "off");
     return `<div class="card"><h2>${NAMES[k]}</h2>
       <div class="svc">
-        <span><span class="dot ${on?"on":"off"}"></span>${on?"运行中":"已停止"}${extra}</span>
+        <span><span class="dot ${dotCls}"></span>${state}${extra}</span>
         <span>
-          <button class="btn start" ${on?"disabled":""} onclick="act('${k}','start',this)">启动</button>
-          <button class="btn stop" ${on?"":"disabled"} onclick="act('${k}','stop',this)">停止</button>
+          <button class="btn start" ${on||busy?"disabled":""} onclick="act('${k}','start',this)">启动</button>
+          <button class="btn stop" ${!on||busy?"disabled":""} onclick="act('${k}','stop',this)">停止</button>
         </span>
       </div>${players}</div>`;
   }).join("");
@@ -115,7 +118,7 @@ function renderChart(hist){
 async function act(name, action, btn){
   btn.disabled = true;
   try { await fetch(`/api/service/${name}/${action}`, {method:"POST"}); } catch(e) {}
-  setTimeout(refresh, 1000);
+  setTimeout(refresh, 500);
 }
 
 async function refresh(){
