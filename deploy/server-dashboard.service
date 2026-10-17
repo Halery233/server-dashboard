@@ -1,0 +1,17 @@
+[Unit]
+Description=Server Status Dashboard
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/server-dashboard
+Environment=DASH_USER=admin
+Environment=DASH_PASS=change-me
+ExecStart=/usr/bin/python3 /opt/server-dashboard/app.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
