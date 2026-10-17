@@ -50,6 +50,31 @@ def _net_sampler():
 
 threading.Thread(target=_net_sampler, daemon=True).start()
 
+# Pending start/stop actions, so the UI can show "starting/stopping" right away.
+BUSY = {}
+_busy_lock = threading.Lock()
+
+
+def _set_busy(name, action):
+    with _busy_lock:
+        BUSY[name] = (action, time.time())
+
+
+def _busy_state(name, running):
+    """Return "start"/"stop" while an action is pending, else None."""
+    with _busy_lock:
+        item = BUSY.get(name)
+        if not item:
+            return None
+        action, ts = item
+        if time.time() - ts > 180:
+            BUSY.pop(name, None)
+            return None
+        if (action == "stop" and not running) or (action == "start" and running):
+            BUSY.pop(name, None)
+            return None
+        return action
+
 
 def run(cmd, timeout=30):
     try:
@@ -113,13 +138,16 @@ def docker_running(name):
 
 def svc_status():
     players = mc_players()
-    return {
+    st = {
         "teamspeak": {"running": ok("pgrep -x ts3server")},
         "webspeak": {"running": docker_running("webspeak-client-for-teamspeak-webspeak-1")},
         "mc": {"running": ok("pgrep -x java"), "online": len(players), "players": players},
         "cs2": {"running": ok("pgrep -x cs2")},
         "piik": {"running": docker_running("piik-piik-1")},
     }
+    for name, info in st.items():
+        info["busy"] = _busy_state(name, info["running"])
+    return st
 
 
 def bg(fn):
@@ -199,9 +227,11 @@ def api_service(name, action):
     if name not in SERVICES:
         return jsonify(ok=False, error="unknown service"), 404
     if action == "start":
+        _set_busy(name, "start")
         bg(SERVICES[name][0])
         return jsonify(ok=True, msg=f"{name} starting")
     if action == "stop":
+        _set_busy(name, "stop")
         bg(SERVICES[name][1])
         return jsonify(ok=True, msg=f"{name} stopping")
     return jsonify(ok=False, error="bad action"), 400
